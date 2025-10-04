@@ -181,4 +181,7 @@ export function DetalleOrden(){
     </div>
   );
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 7514667 (wip)
