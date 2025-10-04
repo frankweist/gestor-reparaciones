@@ -7,25 +7,20 @@ const ESTADOS: EstadoOrden[] = [
   "recepcion","inspeccion","presupuestado","en_reparacion","espera_piezas","listo","facturado","entregado","cancelado"
 ];
 
-type Info = {
-  id?: string;
-  codigo?: string;
-  cliente?: string;
-  equipo?: string;
-  estado?: EstadoOrden;
-};
+type Info = { id?:string; codigo?:string; cliente?:string; equipo?:string; estado?:EstadoOrden; };
 
 export function DetalleOrden(){
-  const { ordenId } = useSeleccion();
+  const { ordenId, setOrdenId } = useSeleccion();
   const [info, setInfo] = useState<Info>({});
   const [cargando, setCargando] = useState(false);
-
-  // formularios locales
   const [nuevoEstado, setNuevoEstado] = useState<EstadoOrden>("en_reparacion");
+
+  // formulario progreso
   const [progTipo, setProgTipo] = useState<"diagnostico"|"reparacion"|"prueba"|"pausa"|"nota">("nota");
   const [progDetalle, setProgDetalle] = useState("");
   const [progHoras, setProgHoras] = useState<number|undefined>(undefined);
 
+  // formulario pieza
   const [piezaDesc, setPiezaDesc] = useState("");
   const [piezaCant, setPiezaCant] = useState(1);
   const [piezaCoste, setPiezaCoste] = useState(0);
@@ -33,15 +28,14 @@ export function DetalleOrden(){
   const [progresos, setProgresos] = useState<any[]>([]);
   const [piezas, setPiezas] = useState<any[]>([]);
 
-  const cargar = async ()=>{
-    if(!ordenId){ setInfo({}); setProgresos([]); setPiezas([]); return; }
+  const cargar = async (id:string)=>{
     setCargando(true);
-    const o = await Listados.obtenerOrdenDetallada(ordenId);
+    console.log("[DetalleOrden] cargar", id);
+    const o = await Listados.obtenerOrdenDetallada(id);
     if(!o){ setCargando(false); return; }
     setInfo({
       id: o.id, codigo: o.codigo_orden, estado: o.estado,
-      cliente: o.cliente?.nombre,
-      equipo: o.aparato ? `${o.aparato.marca} ${o.aparato.modelo}` : undefined,
+      cliente: o.cliente?.nombre, equipo: o.aparato ? `${o.aparato.marca} ${o.aparato.modelo}` : undefined
     });
     const [progs, pzs] = await Promise.all([
       db.progresos.where("orden_id").equals(o.id).reverse().sortBy("fecha"),
@@ -53,7 +47,15 @@ export function DetalleOrden(){
     setCargando(false);
   };
 
-  useEffect(()=>{ cargar(); /* eslint-disable-next-line */ },[ordenId]);
+  // Auto-seleccionar última orden si no hay activa
+  useEffect(()=>{
+    (async ()=>{
+      if (ordenId) { await cargar(ordenId); return; }
+      const ult = await db.ordenes.orderBy("fecha_creacion").reverse().first();
+      if (ult?.id) { console.log("[DetalleOrden] autoselect", ult.id); setOrdenId(ult.id); await cargar(ult.id); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[ordenId]);
 
   const totalHoras = useMemo(()=>progresos.reduce((s,p)=>s+(p.horas_invertidas||0),0),[progresos]);
   const totalPiezas = useMemo(()=>piezas.reduce((s,p)=>s + (p.costo_unitario||0)*(p.cantidad||0),0),[piezas]);
@@ -61,7 +63,7 @@ export function DetalleOrden(){
   const cambiarEstado = async ()=>{
     if(!info.id) return;
     await db.ordenes.update(info.id, { estado: nuevoEstado, fecha_actualizacion: new Date().toISOString() });
-    await cargar();
+    await cargar(info.id);
   };
 
   const agregarProgreso = async (e:React.FormEvent)=>{
@@ -76,9 +78,8 @@ export function DetalleOrden(){
       detalle: progDetalle.trim(),
       horas_invertidas: progHoras
     });
-    setProgDetalle("");
-    setProgHoras(undefined);
-    await cargar();
+    setProgDetalle(""); setProgHoras(undefined);
+    await cargar(info.id);
   };
 
   const agregarPieza = async (e:React.FormEvent)=>{
@@ -94,61 +95,48 @@ export function DetalleOrden(){
       estado: "instalada"
     });
     setPiezaDesc(""); setPiezaCant(1); setPiezaCoste(0);
-    await cargar();
+    await cargar(info.id);
   };
 
-  if(!ordenId) return <p className="text-sm text-gray-600">Selecciona una orden en Historial.</p>;
   if(cargando) return <p className="text-sm">Cargando…</p>;
 
   return (
     <div className="grid gap-4">
-      <div className="grid md:grid-cols-2 gap-3">
-        <div className="card">
-          <h3 className="font-semibold mb-2">Resumen</h3>
-          <p><b>Orden:</b> {info.codigo ?? "—"}</p>
-          <p><b>Cliente:</b> {info.cliente ?? "—"}</p>
-          <p><b>Equipo:</b> {info.equipo ?? "—"}</p>
-          <div className="mt-3">
-            <label className="label">Estado</label>
-            <div className="flex gap-2">
-              <select className="input" value={nuevoEstado} onChange={e=>setNuevoEstado(e.target.value as EstadoOrden)}>
-                {ESTADOS.map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
-              </select>
-              <button className="btn btn-primary" onClick={cambiarEstado} type="button">Actualizar estado</button>
-            </div>
-          </div>
+      <div className="card">
+        <h3 className="font-semibold mb-2">Resumen</h3>
+        <div className="text-sm">
+          <div><b>Orden:</b> {info.codigo ?? "—"}</div>
+          <div><b>Cliente:</b> {info.cliente ?? "—"}</div>
+          <div><b>Equipo:</b> {info.equipo ?? "—"}</div>
         </div>
-
-        <div className="card">
-          <h3 className="font-semibold mb-2">Añadir progreso</h3>
-          <form onSubmit={agregarProgreso} className="grid gap-2">
-            <div className="grid md:grid-cols-3 gap-2">
-              <div>
-                <label className="label">Tipo</label>
-                <select className="input" value={progTipo} onChange={e=>setProgTipo(e.target.value as any)}>
-                  <option value="diagnostico">Diagnóstico</option>
-                  <option value="reparacion">Reparación</option>
-                  <option value="prueba">Prueba</option>
-                  <option value="pausa">Pausa</option>
-                  <option value="nota">Nota</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Horas invertidas</label>
-                <input className="input" type="number" step="0.1" value={progHoras ?? ""} onChange={e=>setProgHoras(e.target.value? +e.target.value : undefined)} />
-              </div>
-              <div className="md:col-span-1 flex items-end">
-                <button className="btn btn-primary" type="submit">Registrar</button>
-              </div>
-            </div>
-            <textarea className="input" placeholder="Detalle del progreso" value={progDetalle} onChange={e=>setProgDetalle(e.target.value)} />
-          </form>
+        <div className="mt-3 flex gap-2">
+          <select className="input" value={nuevoEstado} onChange={e=>setNuevoEstado(e.target.value as EstadoOrden)}>
+            {ESTADOS.map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+          </select>
+          <button className="btn btn-primary" onClick={cambiarEstado} type="button">Actualizar estado</button>
         </div>
+        {!info.id && <p className="text-amber-700 mt-2">No hay orden activa. Abre “Historial” y pulsa Seleccionar en una orden.</p>}
       </div>
 
       <div className="grid md:grid-cols-2 gap-3">
         <div className="card">
-          <h3 className="font-semibold mb-2">Bitácora</h3>
+          <h3 className="font-semibold mb-2">Añadir progreso</h3>
+          <form onSubmit={agregarProgreso} className="grid gap-2">
+            <div className="grid md:grid-cols-3 gap-2">
+              <select className="input" value={progTipo} onChange={e=>setProgTipo(e.target.value as any)}>
+                <option value="diagnostico">Diagnóstico</option>
+                <option value="reparacion">Reparación</option>
+                <option value="prueba">Prueba</option>
+                <option value="pausa">Pausa</option>
+                <option value="nota">Nota</option>
+              </select>
+              <input className="input" type="number" step="0.1" placeholder="Horas" value={progHoras ?? ""} onChange={e=>setProgHoras(e.target.value? +e.target.value : undefined)} />
+              <button className="btn btn-primary" type="submit">Registrar</button>
+            </div>
+            <textarea className="input" placeholder="Detalle del progreso" value={progDetalle} onChange={e=>setProgDetalle(e.target.value)} />
+          </form>
+
+          <h4 className="mt-4 font-medium">Bitácora</h4>
           <ul className="space-y-2">
             {progresos.map(p=>(
               <li key={p.id} className="border rounded-xl p-2">
@@ -166,8 +154,8 @@ export function DetalleOrden(){
           <h3 className="font-semibold mb-2">Piezas usadas</h3>
           <form onSubmit={agregarPieza} className="grid md:grid-cols-3 gap-2">
             <input className="input md:col-span-2" placeholder="Descripción de la pieza" value={piezaDesc} onChange={e=>setPiezaDesc(e.target.value)} />
-            <input className="input" type="number" min={1} value={piezaCant} onChange={e=>setPiezaCant(Math.max(1, +e.target.value||1))} />
-            <input className="input" type="number" step="0.01" min={0} value={piezaCoste} onChange={e=>setPiezaCoste(Math.max(0, +e.target.value||0))} />
+            <input className="input" type="number" min={1} placeholder="Cant." value={piezaCant} onChange={e=>setPiezaCant(Math.max(1, +e.target.value||1))} />
+            <input className="input" type="number" step="0.01" min={0} placeholder="€/u" value={piezaCoste} onChange={e=>setPiezaCoste(Math.max(0, +e.target.value||0))} />
             <div className="md:col-span-3">
               <button className="btn btn-primary" type="submit">Añadir pieza</button>
             </div>
@@ -193,3 +181,4 @@ export function DetalleOrden(){
     </div>
   );
 }
+
