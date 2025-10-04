@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: build-pages
 on:
   push:
@@ -26,3 +27,33 @@ jobs:
           git add docs
           git commit -m "ci: publish docs" || echo "no changes"
           git push
+=======
+name: build-pages
+on:
+  push:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: corepack enable
+      - run: corepack prepare pnpm@9.6.0 --activate
+      - run: pnpm install
+      - run: pnpm -r build
+      - run: |
+          rm -rf docs
+          mkdir -p docs
+          rsync -a apps/web/dist/ docs/
+      - name: Commit docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs
+          git commit -m "ci: publish docs" || echo "no changes"
+          git push
+>>>>>>> 36294d0 (ci: remove deploy workflow)
