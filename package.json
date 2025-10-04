@@ -1,0 +1,19 @@
+{
+  "name": "gestor-reparaciones",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @app/web dev",
+    "lint": "echo skip",
+    "test": "echo skip"
+  },
+  "packageManager": "pnpm@9.6.0",
+  "devDependencies": {
+    "typescript": "5.5.4"
+  }
+}
